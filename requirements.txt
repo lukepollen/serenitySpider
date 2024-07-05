@@ -1,0 +1,8 @@
+bs4
+datetime
+google-api-core
+google-auth
+google-cloud-bigquery
+metabeaver
+pandas
+selenium

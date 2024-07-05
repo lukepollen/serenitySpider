@@ -1,0 +1,10 @@
+homeAddress: ''
+websiteName: ''
+
+# Location of a sitemap to crawl
+siteMapLocation: ''
+
+# Location of GCP credentials we will use to upload data and the target project + set of tables
+keyFileLoc: '' # somePath/subPath/your_credentials.json
+projectId: ''
+tableSetId: ''
