@@ -1,8 +1,12 @@
 bs4
 datetime
+db-dtypes
 google-api-core
 google-auth
 google-cloud-bigquery
+google-cloud-bigquery-storage
 metabeaver
 pandas
+pyyaml
 selenium
+webdriver_manager

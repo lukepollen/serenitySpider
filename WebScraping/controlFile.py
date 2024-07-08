@@ -14,7 +14,6 @@ from CloudFunctions.Google.bigQueryInputOutput import append_to_bigquery_table
 from WebScraping.defaultSeleniumSettings import initiateDriver
 
 # Scripts within this directory
-from WebScraping.projectConfiguration import returnCrawlConfigData
 from WebScraping.cloudAuthenticator import get_data_dictionary
 from WebScraping.justTheScraper import crawl_website
 from WebScraping.threadedManagement import check_driver_status
@@ -34,30 +33,29 @@ from WebScraping.threadedManagement import check_driver_status
 # Set conditional print status
 os.environ["BEAVER_PRINTING"] = 'False'
 
-# Date for today
-currentDate = pd.to_datetime('today').strftime('%Y-%m-%d')
-
-## Retrieve details about the webscrape from the project-level metaData file
-metaData = returnCrawlConfigData()
-# Account credentials for GCP uploads.
-keyFilePath = metaData.get('keyFileLoc')
-# Target website. Short name for referring to.
-websiteNickname = metaData.get('websiteName')
-# target website. Full valid home page URL
-fullWebName = metaData.get('homeAddress')
-# Sitemap Location. Syntactic sugar.
-siteMapLocation = metaData.get('siteMapLocation')
-# Define endpoint in the cloud and send to helper upload function
-theProjectId = metaData.get('projectId')
-# Get GCP tableSetId. Future update this to func/cloud specific args.
-tableSet = metaData.get('tableSetId')
-# Create table name that is the target for discovered but uncrawled links
-discoveredLinksTableName = websiteNickname + '_tocrawl'
-
 ### END OF FROZEN VARIABLES ###
 
 
 ### DYNAMIC LOGIC ###
+
+# Date for today
+currentDate = pd.to_datetime('today').strftime('%Y-%m-%d')
+
+## Retrieve details about the webscrape from running host environment
+# Account credentials for GCP uploads.
+keyFilePath = os.environ['keyFileLocation']
+# target website. Full valid home page URL
+fullWebName = os.environ['fullAddress'] # e.g. https://www.orchardnetwork.org.uk/about
+# Target website. Short name for referring to.
+websiteNickname = os.environ['crawlDomain'] # e.g. orchard_network_uk
+# Sitemap Location. Syntactic sugar.
+siteMapLocation = os.environ['siteMapLocation']
+# Define endpoint in the cloud and send to helper upload function
+theProjectId = os.environ['projectId']
+# Get GCP tableSetId. Future update this to func/cloud specific args.
+tableSet = os.environ['tableSetId']
+# Create table name that is the target for discovered but uncrawled links
+discoveredLinksTableName = websiteNickname + '_tocrawl'
 
 # Using the values we defined, retrieve a data dictionary for crawled URLs, discovered URLs, link and payload arguments.
 dataDictionary = get_data_dictionary(
@@ -67,7 +65,7 @@ dataDictionary = get_data_dictionary(
     theProjectId,
     tableSet,
     websiteNickname,
-    defaultDays=10,
+    defaultDays=1,
 )
 
 # Access elements of the dictionary directly just for readability purposes

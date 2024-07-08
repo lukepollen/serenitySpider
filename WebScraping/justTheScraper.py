@@ -345,14 +345,6 @@ def extract_links(driver, current_url):
     return links
 
 
-# Take an URL represented as a string and the domain name and check whether potential URL in same domain
-#def is_external_url(url, domain):
-#    parsed_url = urlparse(url)
-#    if parsed_url.netloc and parsed_url.netloc != domain:
-#        return True
-#    return False
-
-
 def is_external_url(url: str, domain: str) -> bool:
     """
     Check if a given URL is external to a domain.

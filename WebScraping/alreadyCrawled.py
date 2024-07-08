@@ -1,8 +1,9 @@
-# 
+# Standard Library Imports
 import datetime as dt
-import pandas as pd
 
-#
+
+# Third party library imports
+import pandas as pd
 from google.api_core.exceptions import NotFound
 
 # Import URL link handler from within this project

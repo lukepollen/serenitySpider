@@ -1,5 +1,8 @@
 ### Imports ###
 
+# Standard Library imports
+import os
+
 # Google library imports for authentication to GCP and BigQuery
 from google.oauth2 import service_account
 from google.cloud import bigquery
