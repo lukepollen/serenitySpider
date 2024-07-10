@@ -49,7 +49,9 @@ def get_data_dictionary(discoveredLinksTableName, # Table of stored links on pri
     """
 
     # Load credentials from the JSON key file
-    credentials = service_account.Credentials.from_service_account_file(keyFilePath)
+    keyFilePath = os.environ['keyFileLocation']
+    absoluteKeyFilePath = os.path.abspath(keyFilePath)
+    credentials = service_account.Credentials.from_service_account_file(absoluteKeyFilePath)
 
     # Define mainPayloadArguments for uploading data to the cloud now that we have our credentials
     mainPayloadArguments = [credentials,

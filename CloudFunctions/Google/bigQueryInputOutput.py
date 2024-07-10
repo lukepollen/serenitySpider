@@ -1,75 +1,87 @@
 from google.cloud import bigquery
 from metabeaver.GoogleCloudPlatform.BigQuery.TableManagement import create_schema, create_bigquery_table
 from metabeaver.Formatting.printControl import conditional_print as cprint
+from metabeaver.OperationBeaver.logCollector.defaultLogger import Logger
 
+# Append data to a BigQuery table, if it exists. Create the table if it does not exist for IO.
 def append_to_bigquery_table(uploadArgs, items_to_append):
-
-    # Get variables packaged in the controlFile
-    # Everything to define the target table
     credentials = uploadArgs[0]
     project_id = uploadArgs[1]
     table_set = uploadArgs[2]
     table_name = uploadArgs[3]
-    # Everything to define the table column names
     fieldValues = uploadArgs[4]
-    cprint('Got upload variables.')
 
-    cprint('Length of items to append was: ')
-    cprint(len(items_to_append))
+    logger = Logger()
+    logger.log('Got upload variables.')
+    logger.log('Length of items to append was: ')
+    logger.log(len(items_to_append))
+
     if len(items_to_append) == 6:
         items_to_append[2] = repr(items_to_append[2])
         items_to_append[3] = repr(items_to_append[3])
 
-    # Check if the table exists
     client = bigquery.Client(project=project_id, credentials=credentials)
     table_id = f"{project_id}.{table_set}.{table_name}"
-    cprint('Got client')
-    cprint('Table id is:' + table_id)
-    table = None
+    logger.log('Got client')
+    logger.log('Table id is:' + table_id)
+
+    # Attempt to retrieve the table
     try:
         table = client.get_table(table_id)
-    except Exception as e:
-        cprint("Failed to get table: " + table_id)
-
-    # Generate the schema and create the BigQuery tables
-    try:
-        cprint('Creating schema...')
-        schema = create_schema(items_to_append, fieldValues)
+        logger.log('Table exists.')
     except:
-        cprint('Failed to create schema!')
+        logger.log(f"Table {table_id} not found. Creating a new one.")
 
-    # Only create the table if it does not exist
-    if not table:
+        # Generate schema
         try:
-            cprint('Creating table for the first time...')
-            table = create_bigquery_table(credentials, project_id, table_set, table_name, schema)
-            cprint('Created table!')
+            logger.log('Creating schema...')
+            schema = create_schema(items_to_append, fieldValues)
+            logger.log('Schema created successfully.')
         except Exception as e:
-            cprint(str(e))
-            cprint('Failed to create table')
+            logger.log(f'Failed to create schema! Error: {e}')
+            return
 
-    # Insert everything in items_to_append as a new row
-    row = {name: value for name, value in zip(fieldValues, items_to_append)}
-    errors = client.insert_rows_json(table, [row])
-    if errors:
-        cprint("Failed to insert the row:")
-        cprint(errors)
+        # Create the table
+        try:
+            logger.log('Creating table for the first time...')
+            table = create_bigquery_table(client, table_set, table_name, schema)
+            logger.log('Created table!')
+        except Exception as e:
+            logger.log(f'Failed to create table. Error: {e}')
+            return
+
+    # Insert rows into the table
+    if table:
+        try:
+            row = {name: value for name, value in zip(fieldValues, items_to_append)}
+            errors = client.insert_rows_json(table, [row])
+            if errors:
+                logger.log("Failed to insert the row:")
+                logger.log(errors)
+            else:
+                logger.log("Row inserted successfully.")
+        except Exception as e:
+            logger.log(f'Failed to insert row. Error: {e}')
     else:
-        cprint("Row inserted successfully.")
+        logger.log('Table object is None, cannot insert rows.')
 
 
 # Tries to upload some data to a BigQuery table, based on project, tableset, tablename and instantiated credentials
 def toGoogleBigQuery(projectIdentity, tableSet, tableName, credentials, row):
 
-    client = bigquery.Client(credentials=credentials, project=projectIdentity)
+    # Try to insert rows into a Google BigQuery table.
+    try:
+        client = bigquery.Client(credentials=credentials, project=projectIdentity)
+        table_ref = client.dataset(tableSet).table(tableName)
+        table = client.get_table(table_ref)
 
-    table_ref = client.dataset(tableSet).table(tableName)
-    table = client.get_table(table_ref)
-
-    errors = client.insert_rows(table, [row])
-    if errors:
-        cprint(f"Encountered errors while inserting rows: {errors}")
+        errors = client.insert_rows(table, [row])
+        if errors:
+            logger.log(f"Encountered errors while inserting rows: {errors}")
+            return False
+        else:
+            logger.log("Row successfully inserted")
+            return True
+    except Exception as e:
+        logger.log(f'Failed to insert row to Google BigQuery. Error: {e}')
         return False
-    else:
-        cprint("Row successfully inserted")
-        return True

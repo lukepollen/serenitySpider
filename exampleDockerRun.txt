@@ -1,0 +1,1 @@
+docker run -e fullAddress=https://www.bumblebee.org/ -e crawlDomain=bumble_bee_org -e siteMapLocation= -e keyFileLocation=WebScraping/your_credentials.json -e projectId=your-gcp-project -e tableSetId=your-bigquery-tableset -v "%cd%/logs:/app/logs" serenity_spider
