@@ -1,3 +1,6 @@
+# If Chrome is run without a head...
+# ... The following verse need not be read.
+#
 # If you wish the crawler to work and not to weep,
 # Make sure your machine is not set to sleep.
 # Go to power settings and look for advanced,
@@ -12,11 +15,15 @@
 import datetime as dt
 import os
 import re
+
 from urllib.parse import urljoin, urlparse
 
 # Imports from Python extended ecosystem
+import pandas as pd
+
 from bs4 import BeautifulSoup
 from metabeaver.Formatting.printControl import conditional_print as cprint
+from metabeaver.OperationBeaver.logCollector.defaultLogger import Logger
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -25,27 +32,73 @@ from selenium.webdriver.common.by import By
 # Imports from within project
 from WebScraping.universalResourceLinkHandler import is_valid_url
 
-
 ### END Of IMPORTS ###
+
+
+### Class Definition ###
+
+class LinkBank:
+
+    # Initialise the class with the link upload function, the arguments for the function, link num to retain, time/date.
+    def __init__(self, linkUploadFunc, linkUploadArgs, bank_limit=256):
+        self.bank_limit = bank_limit
+        self.link_bank = set()
+        self.linkUploadFunc = linkUploadFunc
+        self.linkUploadArgs = linkUploadArgs
+        # Get today's date as a string to add to the links to crawl
+        self.todayDate = dt.datetime.today().strftime('%Y-%m-%d')
+        # Get today's time as a string to add to the links to crawl
+        self.todayTime = dt.datetime.today().strftime('%H:%M:%S')
+
+    # Add a link to the set to store.
+    def add_link(self, link):
+        self.link_bank.add(link)
+        if len(self.link_bank) >= self.bank_limit:
+            self.upload_to_cloud()
+
+    # Using the function and the arguments that we provided, upload the links to the cloud
+    def upload_to_cloud(self):
+        # Upload the links and perform a reset to an empty set for storing next links
+        if not self.link_bank:
+            return
+
+        # Upload a dataframe of links to the cloud.
+        logger = Logger()
+        logger.log(f"Uploading {len(self.link_bank)} links to the cloud.")
+        # Convert link bank to DataFrame
+        fullLinkData = [[self.todayDate, self.todayTime, x] for x in self.link_bank]
+        df = pd.DataFrame(fullLinkData, columns=['Date', 'Time', 'Link'])
+        logger.log('Created dataframe of links in form of [theDate, theTime, theLink]')
+
+        # Use the provided upload function and arguments
+        self.linkUploadFunc(self.linkUploadArgs, df)
+        logger.log('Uploaded dataframe of links!')
+
+        # Expand length of link bank in powers of two; retain memory of encountered links, but slowly increase memory.
+        self.bank_limit = self.bank_limit * 2
+        logger.log(f'Increased storage capacity to {str(self.bank_limit)}')
+
+    def upload_remaining_links(self):
+        self.upload_to_cloud()
+
+
+### End of Class Definition ###
 
 
 ### FUNCTION DEFINITION ###
 
-def apply_upload(uploadFunc, uploadArgs, pageCrawlData, *args):
-
-    if args:
-        if args[0] == 'verbose':
-            cprint('\n')
-            cprint('in apply_upload...')
-            cprint('uploadFunc was ' + uploadFunc.__name__)
-            cprint('Upload arguments were: ')
-            cprint(uploadArgs)
+def apply_upload(uploadFunc, uploadArgs, pageCrawlData):
 
     uploadFunc(uploadArgs, pageCrawlData)
 
-
 # Crawl a list of pages, and generate a dictionary like {page : [bodyText, responseLog]}
 def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
+
+    # Instantiate the Logger for recording and debugging.
+    logger = Logger()
+
+    # Get the element we want to crawl from environment vars
+    extractElement = os.environ.get('extractElement', 'body')
 
     # Get the date and the time when this function was called
     now = dt.datetime.now()
@@ -73,16 +126,16 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
     # Waits until the page load is complete, up to 60s, to try to locate the body of the HTML document.
     try:
         wait = WebDriverWait(driver, 60)
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, extractElement)))
         wait.until(lambda driver: driver.execute_script('return document.readyState') == 'complete')
         truthDictionary['wasFullLoaded'] = True
-        cprint('Got a fully loaded page:')
-        cprint(eachPage)
+        logger.log('Got a fully loaded page:')
+        logger.log(eachPage)
     # Warn user where we did  not get a document.readyState == complete and / or location of <body> failed
     except Exception as e:
-        print(eachPage)
-        print('Wait for page load failed')
-        cprint(f'While waiting for page load, got a generic Exception waiting for the page: {str(e)}')
+        logger.log(eachPage)
+        logger.log('Wait for page load failed')
+        logger.log(f'While waiting for page load, got a generic Exception waiting for the page: {str(e)}')
 
         count = count - 1
 
@@ -106,21 +159,23 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
 
         # Parse the HTML with BeautifulSoup
         soup = BeautifulSoup(raw_html, 'html.parser')
-        # Extract all visible text
-        page_text = soup.get_text(separator='\n', strip=True)
-        #page_text = driver.find_element(By.XPATH, '//body').text
+        # Extract either all visible text or the raw HTML.
+        if os.environ.get('parse_type', 'html') == 'text':
+            page_text = soup.get_text(separator='\n', strip=True)
+        else:
+            page_text = soup
 
         # Update the crawl data with the page text we've parsed from the raw HTML.
         pageCrawlData[1] = page_text
         truthDictionary['gotBodyText'] = True
-        cprint('Got pageText.')
+        logger.log('Got pageText.')
     # Try to recursively crawl a page on a timeout of retrieving body text
     except (TimeoutException, WebDriverException) as e:
 
         # Warn on failed attempt to driver.get() a page due to timeout
-        print(eachPage)
-        print('Hit a TimeoutException or WebDriverException!')
-        cprint(f'While retrieving loaded page data, got an TimeoutException or WebDriverException: {str(e)}')
+        logger.log(eachPage)
+        logger.log('Hit a TimeoutException or WebDriverException!')
+        logger.log(f'While retrieving loaded page data, got an TimeoutException or WebDriverException: {str(e)}')
         count = count - 1
 
         # Try to recursively crawl the page if failed attempts not equal to count
@@ -137,8 +192,8 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
     except Exception as e:
 
         # If there was an exception of any other kind to Timeouts, alert the user and print error warning
-        print(eachPage)
-        print(f'While retrieving loaded page data, got a generic Exception: {str(e)}')
+        logger.log(eachPage)
+        logger.log(f'While retrieving loaded page data, got a generic Exception: {str(e)}')
 
         # Attempt a recursive crawl
         if count > 0:
@@ -155,19 +210,21 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
 
     # Get the response log. Extract the HTTP code, and store the full log.
     try:
-        responseLog = driver.get_log('performance')
+        #responseLog = driver.get_log('performance')
+        responseLog = ''
         pageCrawlData[2] = responseLog
         truthDictionary['gotResponseLog'] = True
+        logger.log('Got the response log.')
     # Use default warning value on failed response log retrieval steps
     except Exception as e:
 
-        print(eachPage)
-        print('Could not retrieve the response log!')
+        logger.log(eachPage)
+        logger.log('Could not retrieve the response log!')
 
         # Store error value for the response log if we could not retrieve network values
         pageCrawlData[2] = 'Could not retrieve the response log!'
-        cprint(f'While trying to retrieve driver log, got a generic Exception: {str(e)}')
-        cprint('Could not retrieve the response log!')
+        logger.log(f'While trying to retrieve driver log, got a generic Exception: {str(e)}')
+        logger.log('Could not retrieve the response log!')
 
     # If we got a fully loaded page, text from the body, with a network log and HTTP code, consider crawl a success.
     if (truthDictionary.get('wasFullLoaded') == True and
@@ -185,23 +242,22 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
         pageCrawlData[1] = ''
 
     # Print the progress if we asked metabeaver.formatting.conditionalPrint to be talkative
-    cprint('\n')
-    cprint('The page was: ' + eachPage)
+    logger.log('\n')
+    logger.log('The page was: ' + eachPage)
 
     # Conditionally print the status of the call, if we have a talkative beaver.
-    cprint('\n')
+    logger.log('\n')
     for k, v in truthDictionary.items():
-        cprint('Printing page crawl milestones')
-        cprint(k + ' : ' + str(v))
+        logger.log('Printing page crawl milestones')
+        logger.log(k + ' : ' + str(v))
 
     # Create a string that gives the truth values for each stage of potential success
     pageCrawlData[3] = ', '.join([f"{key}: {value}" for key, value in truthDictionary.items()])
 
     # Send the crawled data to the cloud
-    if os.environ['BEAVER_PRINTING'] == 'TRUE':
-        apply_upload(uploadFunc, uploadArgs, pageCrawlData, 'verbose')
-    else:
-        apply_upload(uploadFunc, uploadArgs, pageCrawlData)
+    logger.log('Attempting cloud upload...')
+    apply_upload(uploadFunc, uploadArgs, pageCrawlData)
+    logger.log('Cloud upload successful!')
 
     # Return the driver, in case we are crawling from the homepage, or wish to perform other actions on loaded page
     return driver
@@ -218,21 +274,16 @@ def crawl_website(driver,
                   linkUploadFunc,
                   linkUploadArgs,
                   patternList=['.*'],
-                  printMode='verbose',
                   *args):
 
-    # Alert the user to the page we will start with
-    cprint('Start page is: ' + start_page)
+    # Reference the application-wide Logger class
+    logger = Logger()
 
-    # Container to hold data for when we discovered links
-    linkTimeData = []
-    # Get today's date as a string to add to the links to crawl
-    todayDate = dt.datetime.today().strftime('%Y-%m-%d')
-    # Get today's time as a string to add to the links to crawl
-    todayTime = dt.datetime.today().strftime('%Y-%m-%d')
-    # Append these elements so we know when a link on a page was discovered.
-    linkTimeData.append(todayDate)
-    linkTimeData.append(todayTime)
+    # Create a LinkBank to store crawled link for progressive link uploads to the cloud
+    linkBank = LinkBank(linkUploadFunc, linkUploadArgs)
+
+    # Alert the user to the page we will start with
+    logger.log('Start page is: ' + start_page)
 
     # Set to hold crawled pages
     crawled_pages = list(set(filterPages))
@@ -252,7 +303,7 @@ def crawl_website(driver,
 
     # Convert the pages to crawl to a set and alert total pages we need to crawl
     pages_to_crawl = set(pages_to_crawl)
-    cprint('Total pages to crawl is: ' + str(len(pages_to_crawl)))
+    logger.log('Total pages to crawl is: ' + str(len(pages_to_crawl)))
 
     # Base domain to reference when examining links
     domain = urlparse(start_page).netloc
@@ -273,14 +324,12 @@ def crawl_website(driver,
 
             # Extract links from the page
             new_links = extract_links(driver, page)
-            cprint('New links were: ')
-            cprint(new_links)
 
             # Only add new links to crawl which are same domain
             for link in new_links:
                 # Do not add link if we've already crawled.
                 if link not in crawled_pages:
-                    cprint('Adding link, ' + str(link))
+                    logger.log('Adding link, ' + str(link))
                     # Do not add link to crawl if matches external, email, or antipattern
                     if not is_external_url(link, domain):
                         if not is_email_link(link):
@@ -297,7 +346,7 @@ def crawl_website(driver,
 
                                 # After all checks and modifications, check we still have a valid URL. Ignore if bad.
                                 stillValidLink = is_valid_url(link)
-                                cprint('Got a valid link to append!')
+                                logger.log('Got a valid link to append!')
 
                                 # Continue to the next link to check if we did not get a valid link on this iteration.
                                 if not stillValidLink:
@@ -306,20 +355,15 @@ def crawl_website(driver,
                                 # Add link to crawl location
                                 pages_to_crawl.add(link)
 
-                                ## Send the new link to the upload destination
-                                # Add link and time/date to list. Upload the link-date-time combination to the cloud.
-                                linkTimeData.append(link)
-
-                                # Upload Link Data.
-                                linkUploadFunc(linkUploadArgs, linkTimeData)
-                                cprint('Uploaded link data to the cloud!')
-                                cprint(linkTimeData)
-
-                                # Remove Link for next iteration.
-                                linkTimeData.pop(2)
+                                # Add link to link bank to remember / upload when we hit target amount
+                                linkBank.add_link(link)
+                                logger.log('Added link to bank.')
 
     # Print the total number of crawled pages
-    print(f'Total pages crawled: {len(crawled_pages)}')
+    logger.log(f'Total pages crawled: {len(crawled_pages)}')
+   
+    # Upload remaining links in link bank, if they exist
+    linkBank.upload_remaining_links()
 
 
 # Extract links from a previously loaded page
@@ -369,6 +413,5 @@ def is_external_url(url: str, domain: str) -> bool:
 # Check whether a string representation of a URL starts with mailto:
 def is_email_link(url):
     return url.startswith("mailto:")
-
 
 ### END OF FUNCTION DEFINITION ###

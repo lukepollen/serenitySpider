@@ -31,29 +31,3 @@ def check_driver_status(start_time, driver):
 
         # Sleep for some time before checking again (adjust as needed)
         time.sleep(300)  # Sleep for 5 minutes (300 seconds)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

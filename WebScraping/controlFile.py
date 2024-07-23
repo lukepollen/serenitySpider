@@ -7,10 +7,10 @@ import pandas as pd
 import threading
 
 # Imports from metabeaver. Beaver on.
-from metabeaver.Formatting.printControl import conditional_print as cprint
+from metabeaver.OperationBeaver.logCollector.defaultLogger import Logger
 
 # Scripts from other directories.
-from CloudFunctions.Google.bigQueryInputOutput import append_to_bigquery_table
+from CloudFunctions.Google.bigQueryInputOutput import append_to_bigquery_table, append_set_to_bigquery_table
 from WebScraping.defaultSeleniumSettings import initiateDriver
 
 # Scripts within this directory
@@ -30,16 +30,20 @@ from WebScraping.threadedManagement import check_driver_status
 
 ### FROZEN VARIABLES ###
 
-# Set conditional print status
-os.environ["BEAVER_PRINTING"] = 'False'
+
 
 ### END OF FROZEN VARIABLES ###
 
 
 ### DYNAMIC LOGIC ###
 
-# Date for today
+# Create Logger object that will be utilised throughout the debugging of the crawl process
+logger = Logger()
+
+# Date for today to use in crawl logic
 currentDate = pd.to_datetime('today').strftime('%Y-%m-%d')
+# Time for today to use in crawl logic
+start_time = dt.datetime.now()
 
 ## Retrieve details about the webscrape from running host environment
 # Account credentials for GCP uploads.
@@ -56,17 +60,18 @@ theProjectId = os.environ['projectId']
 tableSet = os.environ['tableSetId']
 # Create table name that is the target for discovered but uncrawled links
 discoveredLinksTableName = websiteNickname + '_tocrawl'
+logger.log('Retrieved critical variables from environment.')
 
 # Using the values we defined, retrieve a data dictionary for crawled URLs, discovered URLs, link and payload arguments.
 dataDictionary = get_data_dictionary(
     discoveredLinksTableName,
-    keyFilePath,
     siteMapLocation,
     theProjectId,
     tableSet,
     websiteNickname,
-    defaultDays=1,
+    defaultDays=10,
 )
+logger.log('Retrieved critical link data structure to define crawl links.')
 
 # Access elements of the dictionary directly just for readability purposes
 additionalURLs = dataDictionary.get('additionalURLs')
@@ -75,18 +80,16 @@ linkUploadArguments = dataDictionary.get('linkUploadArguments')
 mainPayloadArguments = dataDictionary.get('mainPayloadArguments')
 
 # Loads a selenium driver which we will use to crawl the website defined in the metadata
-cprint('Instantiating driver...')
+logger.log('Instantiating driver...')
 driver = initiateDriver()
-cprint('Instantiated driver!')
-
-# Create start point which corresponds to the crawler we just created
-start_time = dt.datetime.now()
+logger.log('Instantiated driver!')
 
 # Start the check_driver_status thread
 driver_status_thread = threading.Thread(target=check_driver_status,
                                         args=(start_time, driver)
                                         )
 driver_status_thread.start()
+logger.log('Initiated monitoring thread')
 
 # Crawl the website.
 # Starts at homepage, or first page in uncrawled list.
@@ -97,10 +100,10 @@ crawl_website(driver, # Selenium driver we will use in a crawl.
               3, # Number of times to recursively try to crawl a given page.
               append_to_bigquery_table, # Upload to database function. Uploads crawled page data.
               mainPayloadArguments, # Arguments for our function that uploads crawled page data.
-              append_to_bigquery_table, # Upload to database function. Uploads links.
+              append_set_to_bigquery_table, # Upload to database function. Uploads links.
               linkUploadArguments, # Arguments for our function that uploads page links
               patternList=['.*'], # Crawls all URLS. Use site specific regex, e.g: ['.*\/en\/us\/.*', '.*\/en\/uk\/.*']
-              printMode='verbose', # Print mode, displays more errors
 )
+logger.log(f'Crawling website, {websiteNickname}')
 
 ### END OF DYNAMIC LOGIC ###

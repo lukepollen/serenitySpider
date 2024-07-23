@@ -1,7 +1,6 @@
 # Standard Library Imports
 import datetime as dt
 
-
 # Third party library imports
 import pandas as pd
 from google.api_core.exceptions import NotFound
@@ -18,7 +17,7 @@ def get_uncrawled_links(client,
                        target_column,
                        date_column,
                        n_days=30,
-                       *args):
+                       ):
 
     # Attempt to get links discovered on prior crawls within the last n_days that are not yet crawled.
     try:
@@ -48,7 +47,7 @@ def get_valid_crawled_pages(client,
                             date_column,
                             n_days=30,
                             end_date=None,
-                            *args):
+                            ):
 
     # Get current time in UTC
     now_utc = dt.datetime.utcnow()
@@ -84,7 +83,6 @@ def get_valid_crawled_pages(client,
     return validCrawlURLs
 
 
-
 # Gets the most up to date data for a table where the target column has an entry
 def filterToValidCrawls(df, date_column, filter_column, target_column, start_time, end_date):
 
@@ -112,13 +110,3 @@ def filterToValidCrawls(df, date_column, filter_column, target_column, start_tim
     print(len((resultList)))
 
     return resultList
-
-## Target table storing completed URLs
-#completedURLs = get_valid_crawled_pages(client,
-#                                        'yourProject',
-#                                        'yourTableSet',
-#                                        'yourTable',
-#                                        'Page',
-#                                        'Page Text',
-#                                        'Date',
-#                                       )

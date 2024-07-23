@@ -7,6 +7,8 @@ import os
 from google.oauth2 import service_account
 from google.cloud import bigquery
 
+from metabeaver.OperationBeaver.logCollector.defaultLogger import Logger
+
 # Functions to handle links, check tables of crawled pages and links in BigQuery, and retrieve URLs from sitemap.
 from WebScraping.sitemapModification import getURLSFromSitemap
 from WebScraping.alreadyCrawled import get_valid_crawled_pages, get_uncrawled_links
@@ -21,7 +23,6 @@ from WebScraping.universalResourceLinkHandler import is_valid_url
 # Function generates a data dictionary comprising key parameters and data objects for web crawling.
 # Encompasses credentials, database table details, URLs from a sitemap, and prior discovered links.
 def get_data_dictionary(discoveredLinksTableName, # Table of stored links on prior crawl
-                        keyFilePath, # Location of credentials to cloud
                         siteMapLocation, # Sitemap filepath to try to load additional URLs from
                         theProjectId, # GCP project ID to store data against
                         tableSet, # BigQuery table in GCP to store data in
@@ -48,10 +49,13 @@ def get_data_dictionary(discoveredLinksTableName, # Table of stored links on pri
         - 'linkUploadArguments': List of arguments for uploading discovered links to a separate table.
     """
 
+    logger = Logger()
+
     # Load credentials from the JSON key file
     keyFilePath = os.environ['keyFileLocation']
     absoluteKeyFilePath = os.path.abspath(keyFilePath)
     credentials = service_account.Credentials.from_service_account_file(absoluteKeyFilePath)
+    logger.log('Got credentials!')
 
     # Define mainPayloadArguments for uploading data to the cloud now that we have our credentials
     mainPayloadArguments = [credentials,
@@ -60,6 +64,7 @@ def get_data_dictionary(discoveredLinksTableName, # Table of stored links on pri
                             websiteName,
                             ['Page', 'Page Text', 'Response Log', 'Crawl Experience', 'Date', 'Time']
                             ]
+    logger.log('Got main payload arguments!')
 
     # Client object to communicate to BigQuery
     client = bigquery.Client(credentials=credentials, project=credentials.project_id)
@@ -74,6 +79,7 @@ def get_data_dictionary(discoveredLinksTableName, # Table of stored links on pri
                                             'Date',
                                             defaultDays,
                                             )
+    logger.log('Got URLs previously completed!')
 
     # Get URLs from a sitemap, if passed.
     if len(siteMapLocation) is not None:
@@ -86,6 +92,7 @@ def get_data_dictionary(discoveredLinksTableName, # Table of stored links on pri
             additionalURLs = []
     else:
         additionalURLs = []
+    logger.log('Got sitemap URLs!')    
 
     # Tries to get URLs from a previous crawl, if we discovered links, but did not then crawl them
     try:
@@ -97,6 +104,7 @@ def get_data_dictionary(discoveredLinksTableName, # Table of stored links on pri
                                            'Date')
     except:
         evenMoreURLs = []
+    logger.log('Got uncrawled links!')    
 
     # Combine URLs we have discovered but haven't crawled in the sitemap.
     additionalURLs = additionalURLs + evenMoreURLs
@@ -121,6 +129,7 @@ def get_data_dictionary(discoveredLinksTableName, # Table of stored links on pri
         'additionalURLs': additionalURLs,
         'linkUploadArguments': linkUploadArguments
     }
+    logger.log('Got full link data structure, returning data dictionary!')
 
     return data_dictionary
 

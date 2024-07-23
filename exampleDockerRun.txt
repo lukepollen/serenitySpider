@@ -1,1 +1,1 @@
-docker run -e fullAddress=https://www.bumblebee.org/ -e crawlDomain=bumble_bee_org -e siteMapLocation= -e keyFileLocation=WebScraping/your_credentials.json -e projectId=your-gcp-project -e tableSetId=your-bigquery-tableset -v "%cd%/logs:/app/logs" serenity_spider
+docker run -e fullAddress=https://www.britannica.com/ -e crawlDomain=britannica_com -e siteMapLocation= -e parse_type=text -e keyFileLocation=WebScraping/credentials.json -e projectId=sonic-passkey-253122 -e tableSetId=goldandglasspreferrably -e chattyBeaver=False -v "%cd%/logs:/app/logs" chrono_spider
