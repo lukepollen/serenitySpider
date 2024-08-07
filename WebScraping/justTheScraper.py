@@ -15,7 +15,8 @@
 import datetime as dt
 import os
 import re
-
+import subprocess
+import sys
 from urllib.parse import urljoin, urlparse
 
 # Imports from Python extended ecosystem
@@ -30,7 +31,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 
 # Imports from within project
-from WebScraping.universalResourceLinkHandler import is_valid_url
+from WebScraping.universalResourceLinkHandler import is_valid_url, getUrlDepth
 
 ### END Of IMPORTS ###
 
@@ -41,17 +42,35 @@ class LinkBank:
 
     # Initialise the class with the link upload function, the arguments for the function, link num to retain, time/date.
     def __init__(self, linkUploadFunc, linkUploadArgs, bank_limit=256):
+
         self.bank_limit = bank_limit
         self.link_bank = set()
         self.linkUploadFunc = linkUploadFunc
         self.linkUploadArgs = linkUploadArgs
+
         # Get today's date as a string to add to the links to crawl
         self.todayDate = dt.datetime.today().strftime('%Y-%m-%d')
         # Get today's time as a string to add to the links to crawl
         self.todayTime = dt.datetime.today().strftime('%H:%M:%S')
 
+        # Set a reference to application wide logger
+        self.logger = Logger()
+
     # Add a link to the set to store.
     def add_link(self, link):
+
+        # Parse the domain from the given link
+        parsed_link_domain = urlparse(link).netloc
+        self.logger.log(f'Parsed link domain: {parsed_link_domain}')
+
+        # Parse the domain from the fullAddress environment variable
+        current_domain = urlparse(os.environ['fullAddress']).netloc
+        self.logger.log(f'Parsed current domain: {current_domain}')
+
+        # Check if the parsed domain matches the current domain
+        if parsed_link_domain == current_domain:
+            self.link_bank.add(link)
+
         self.link_bank.add(link)
         if len(self.link_bank) >= self.bank_limit:
             self.upload_to_cloud()
@@ -63,20 +82,19 @@ class LinkBank:
             return
 
         # Upload a dataframe of links to the cloud.
-        logger = Logger()
-        logger.log(f"Uploading {len(self.link_bank)} links to the cloud.")
+        self.logger.log(f"Uploading {len(self.link_bank)} links to the cloud.")
         # Convert link bank to DataFrame
         fullLinkData = [[self.todayDate, self.todayTime, x] for x in self.link_bank]
         df = pd.DataFrame(fullLinkData, columns=['Date', 'Time', 'Link'])
-        logger.log('Created dataframe of links in form of [theDate, theTime, theLink]')
+        self.logger.log('Created dataframe of links in form of [theDate, theTime, theLink]')
 
         # Use the provided upload function and arguments
         self.linkUploadFunc(self.linkUploadArgs, df)
-        logger.log('Uploaded dataframe of links!')
+        self.logger.log('Uploaded dataframe of links!')
 
         # Expand length of link bank in powers of two; retain memory of encountered links, but slowly increase memory.
-        self.bank_limit = self.bank_limit * 2
-        logger.log(f'Increased storage capacity to {str(self.bank_limit)}')
+        self.bank_limit = self.bank_limit + 256
+        self.logger.log(f'Increased storage capacity to {str(self.bank_limit)}')
 
     def upload_remaining_links(self):
         self.upload_to_cloud()
@@ -92,7 +110,7 @@ def apply_upload(uploadFunc, uploadArgs, pageCrawlData):
     uploadFunc(uploadArgs, pageCrawlData)
 
 # Crawl a list of pages, and generate a dictionary like {page : [bodyText, responseLog]}
-def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
+def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs):
 
     # Instantiate the Logger for recording and debugging.
     logger = Logger()
@@ -141,7 +159,7 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
 
         # Try to recursively crawl the page if failed attempts not equal to count
         if count > 0:
-            crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args)
+            crawlPage(driver, eachPage, count, uploadFunc, uploadArgs)
         else:
             pageCrawlData = [eachPage,
                              'Failed to crawl page due to Page Load Timeout',
@@ -163,7 +181,8 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
         if os.environ.get('parse_type', 'html') == 'text':
             page_text = soup.get_text(separator='\n', strip=True)
         else:
-            page_text = soup
+            # Cast raw HTML to string because JSON makes data engineers sad.
+            page_text = str(soup)
 
         # Update the crawl data with the page text we've parsed from the raw HTML.
         pageCrawlData[1] = page_text
@@ -180,7 +199,7 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
 
         # Try to recursively crawl the page if failed attempts not equal to count
         if count > 0:
-            crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args)
+            crawlPage(driver, eachPage, count, uploadFunc, uploadArgs)
         else:
             pageCrawlData = [eachPage,
                              'Failed to crawl page due to Timeout Exception',
@@ -198,7 +217,7 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
         # Attempt a recursive crawl
         if count > 0:
             count = count - 1
-            crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args)
+            crawlPage(driver, eachPage, count, uploadFunc, uploadArgs)
         else:
             pageCrawlData = [eachPage,
                              'Failed to crawl page due to Exceptions',
@@ -234,12 +253,16 @@ def crawlPage(driver, eachPage, count, uploadFunc, uploadArgs, *args):
         truthDictionary['successfulComplete'] = True
 
     # Replace line break symbol with an actual gap in the text.
-    try:
-        page_text = page_text.replace("\n", " ")
-        pageCrawlData[1] = page_text
-    except UnboundLocalError as ule:
-        print(f'While replacing newlines in the retrieved page_text, got an UnboundLocalError:  {str(ule)}')
-        pageCrawlData[1] = ''
+    if os.environ.get('parse_type', 'html') == 'text':
+        try:
+            page_text = page_text.replace("\n", " ")
+            pageCrawlData[1] = page_text
+        except TypeError as te:
+            logger.log(f'While trying to replace newlines, got a NoneType Error: {str(te)}')
+            pageCrawlData[1] = ''
+        except UnboundLocalError as ule:
+            logger.log(f'While trying to replace newlines, got an UnboundLocalError:  {str(ule)}')
+            pageCrawlData[1] = ''
 
     # Print the progress if we asked metabeaver.formatting.conditionalPrint to be talkative
     logger.log('\n')
@@ -269,101 +292,126 @@ def crawl_website(driver,
                   additionalPages,
                   filterPages,
                   count,
+                  maxURLs,
                   uploadFunc,
                   uploadArgs,
                   linkUploadFunc,
                   linkUploadArgs,
+                  maxDepth=3,
                   patternList=['.*'],
-                  *args):
+                  ):
 
-    # Reference the application-wide Logger class
-    logger = Logger()
+    # Execute the entire crawl within a try-finally block: we raise a sys.exit(0) on either complete or except
+    try:
+        # Reference the application-wide Logger class
+        logger = Logger()
 
-    # Create a LinkBank to store crawled link for progressive link uploads to the cloud
-    linkBank = LinkBank(linkUploadFunc, linkUploadArgs)
+        # Create a LinkBank to store crawled link for progressive link uploads to the cloud
+        linkBank = LinkBank(linkUploadFunc, linkUploadArgs)
 
-    # Alert the user to the page we will start with
-    logger.log('Start page is: ' + start_page)
+        # Alert the user to the page we will start with
+        logger.log('Start page is: ' + start_page)
 
-    # Set to hold crawled pages
-    crawled_pages = list(set(filterPages))
+        # Set to hold crawled pages
+        crawled_pages = list(set(filterPages))
 
-    # Set to hold pages to be crawled. Add home page to additional page.
-    pages_to_crawl = set([start_page] + additionalPages)
-    # Convert back to list
-    pages_to_crawl = list(pages_to_crawl)
+        # Set to hold pages to be crawled. Add home page to additional page.
+        pages_to_crawl = set([start_page] + additionalPages)
+        # Convert back to list
+        pages_to_crawl = list(pages_to_crawl)
 
-    # Remove any non-desired pages that matched filterPages
-    pages_to_crawl = [page for page in pages_to_crawl if page not in crawled_pages]
+        # Remove any non-desired pages that matched filterPages
+        pages_to_crawl = [page for page in pages_to_crawl if page not in crawled_pages]
 
-    # Sanitise the URLs, so we only consider base URL structures occurring before ? parameter
-    for i, page in enumerate(pages_to_crawl):
-        if '?' in page:
-            pages_to_crawl[i] = page.split('?')[0]
+        # Sanitise the URLs, so we only consider base URL structures occurring before ? parameter
+        for i, page in enumerate(pages_to_crawl):
+            if '?' in page:
+                pages_to_crawl[i] = page.split('?')[0]
 
-    # Convert the pages to crawl to a set and alert total pages we need to crawl
-    pages_to_crawl = set(pages_to_crawl)
-    logger.log('Total pages to crawl is: ' + str(len(pages_to_crawl)))
+        # Convert the pages to crawl to a set and alert total pages we need to crawl
+        pages_to_crawl = set(pages_to_crawl)
+        logger.log('Total pages to crawl is: ' + str(len(pages_to_crawl)))
 
-    # Base domain to reference when examining links
-    domain = urlparse(start_page).netloc
+        # Base domain to reference when examining links
+        domain = urlparse(start_page).netloc
 
-    # While we have discovered pages we have not yet crawled, continue crawling
-    while pages_to_crawl:
+        # While we have discovered pages we have not yet crawled, continue crawling
+        urlsCrawled = 0
+        while pages_to_crawl and urlsCrawled < maxURLs:
 
-        # Get the next page to crawl
-        page = pages_to_crawl.pop()
+                # Get the next page to crawl
+                page = pages_to_crawl.pop()
 
-        # Check if the page has already been crawled
-        if page not in crawled_pages:
+                # Check if the page has already been crawled and is within crawler seek depth limit
+                if (page not in crawled_pages) and (getUrlDepth(start_page, page) <= int(maxDepth)):
 
-            # Crawl the page
-            driver = crawlPage(driver, page, count, uploadFunc, uploadArgs, *args)
-            # Add the page to the set of crawled pages
-            crawled_pages.append(page)
+                    logger.log(f'Going to crawl page: {page}')
+                    # Crawl the page
+                    driver = crawlPage(driver, page, count, uploadFunc, uploadArgs)
+                    # Add the page to the set of crawled pages
+                    crawled_pages.append(page)
+                    urlsCrawled = urlsCrawled + 1
+                    logger.log(f'Crawler budget remaining: {maxURLs - urlsCrawled}')
 
-            # Extract links from the page
-            new_links = extract_links(driver, page)
+                    # Extract links from the page
+                    new_links = extract_links(driver, page)
 
-            # Only add new links to crawl which are same domain
-            for link in new_links:
-                # Do not add link if we've already crawled.
-                if link not in crawled_pages:
-                    logger.log('Adding link, ' + str(link))
-                    # Do not add link to crawl if matches external, email, or antipattern
-                    if not is_external_url(link, domain):
-                        if not is_email_link(link):
-                            # Include link only if matches one or more inclusion pattern. Crawl with .* for all pages.
-                            if any(re.match(pattern, link) for pattern in patternList):
+                    # Only add new links to crawl which are same domain
+                    for link in new_links:
+                        # Do not add link if we've already crawled.
+                        if link not in crawled_pages:
+                            logger.log('Adding link, ' + str(link))
+                            # Do not add link to crawl if matches external, email, or antipattern
+                            if not is_external_url(link, domain):
+                                if not is_email_link(link):
+                                    # Include link only if matches one or more inclusion pattern. Crawl with .* for all pages.
+                                    if any(re.match(pattern, link) for pattern in patternList):
 
-                                # Ignore appendages after ? character and only crawl base URL structure.
-                                if '?' in link:
-                                    link = link.split('?')[0]
+                                        # Ignore appendages after ? character and only crawl base URL structure.
+                                        if '?' in link:
+                                            link = link.split('?')[0]
 
-                                # Ignore appendages after # character and only crawl base URL structure.
-                                if '#' in link:
-                                    link = link.split('#')[0]
+                                        # Ignore appendages after # character and only crawl base URL structure.
+                                        if '#' in link:
+                                            link = link.split('#')[0]
 
-                                # After all checks and modifications, check we still have a valid URL. Ignore if bad.
-                                stillValidLink = is_valid_url(link)
-                                logger.log('Got a valid link to append!')
+                                        # After all checks and modifications, check we still have a valid URL. Ignore if bad.
+                                        stillValidLink = is_valid_url(link)
+                                        logger.log('Got a valid link to append!')
 
-                                # Continue to the next link to check if we did not get a valid link on this iteration.
-                                if not stillValidLink:
-                                    continue
+                                        # Continue to the next link to check if we did not get a valid link on this iteration.
+                                        if not stillValidLink:
+                                            continue
 
-                                # Add link to crawl location
-                                pages_to_crawl.add(link)
+                                        # Add link to crawl location
+                                        pages_to_crawl.add(link)
 
-                                # Add link to link bank to remember / upload when we hit target amount
-                                linkBank.add_link(link)
-                                logger.log('Added link to bank.')
+                                        # Add link to link bank to remember / upload when we hit target amount
+                                        linkBank.add_link(link)
+                                        logger.log('Added link to bank.')
 
-    # Print the total number of crawled pages
-    logger.log(f'Total pages crawled: {len(crawled_pages)}')
-   
-    # Upload remaining links in link bank, if they exist
-    linkBank.upload_remaining_links()
+        ## Finalise the crawl by logging total pages crawled and uploading remaining links
+        # Print the total number of crawled pages
+        logger.log(f'Total pages crawled: {len(crawled_pages)}')
+
+        # Upload remaining links in link bank, if they exist
+        logger.log(f'Finished crawl for {start_page}.]: Crawl is complete, uploading data to cloud storage.')
+        linkBank.upload_remaining_links()
+
+        # Quit the driver to free resources and prevent hanging container.
+        driver.quit()
+
+        # Pass an exit code of zero up from the application
+        sys.exit(0)
+
+    except Exception as e:
+        # Create an instance of Logger class and record exception
+        logger.log('Got an exception when attempting to crawl')
+        logger.log(e)
+        sys.exit(1)
+
+
+
 
 
 # Extract links from a previously loaded page
@@ -414,4 +462,28 @@ def is_external_url(url: str, domain: str) -> bool:
 def is_email_link(url):
     return url.startswith("mailto:")
 
+
+def stop_and_remove_container():
+
+    hostname = subprocess.check_output('hostname', shell=True).strip().decode('utf-8')
+
+    # If we passed 'True' as an environment var for exitOnFinish, stop and delete the container
+    if os.environ.get('exitOnFinish', 'False') == 'True':
+
+        # Get the full path to the Docker executable
+        try:
+            docker_path = os.environ.get('dockerPath', 'Null')
+        except:
+            docker_path = 'Null'
+
+        try:
+            if docker_path != 'Null':
+                # Stop the Docker container
+                subprocess.run([docker_path, 'stop', hostname], check=True)
+
+                # Remove the Docker container
+                subprocess.run([docker_path, 'rm', hostname], check=True)
+            logger.log(f'Shutdown container and removed container with {hostname}')
+        except:
+            logger.log(f'Failed to shutdown container with {hostname}')
 ### END OF FUNCTION DEFINITION ###

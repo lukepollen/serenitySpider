@@ -7,6 +7,7 @@ google-cloud-bigquery
 google-cloud-bigquery-storage
 metabeaver
 pandas
+pandas-gbq
 pyyaml
 selenium
 webdriver_manager

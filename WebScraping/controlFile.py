@@ -58,6 +58,10 @@ siteMapLocation = os.environ['siteMapLocation']
 theProjectId = os.environ['projectId']
 # Get GCP tableSetId. Future update this to func/cloud specific args.
 tableSet = os.environ['tableSetId']
+# Get the maximum URL depth to consider
+maxDepth = os.environ['maxDepth']
+# Get the maximum number of URLs to crawl
+maxURLs = int(os.environ['maxURLs'])
 # Create table name that is the target for discovered but uncrawled links
 discoveredLinksTableName = websiteNickname + '_tocrawl'
 logger.log('Retrieved critical variables from environment.')
@@ -85,11 +89,11 @@ driver = initiateDriver()
 logger.log('Instantiated driver!')
 
 # Start the check_driver_status thread
-driver_status_thread = threading.Thread(target=check_driver_status,
-                                        args=(start_time, driver)
-                                        )
-driver_status_thread.start()
-logger.log('Initiated monitoring thread')
+#driver_status_thread = threading.Thread(target=check_driver_status,
+#                                        args=(start_time, driver)
+#                                        )
+#driver_status_thread.start()
+#logger.log('Initiated monitoring thread')
 
 # Crawl the website.
 # Starts at homepage, or first page in uncrawled list.
@@ -98,10 +102,12 @@ crawl_website(driver, # Selenium driver we will use in a crawl.
               additionalURLs, # Any additional URLs to crawl. From a sitemap, or uncrawled links previously harvested.
               allCompletedURLs, # All URLs completed within the last n days, where n is a user specified number (int).
               3, # Number of times to recursively try to crawl a given page.
+              maxURLs,
               append_to_bigquery_table, # Upload to database function. Uploads crawled page data.
               mainPayloadArguments, # Arguments for our function that uploads crawled page data.
               append_set_to_bigquery_table, # Upload to database function. Uploads links.
               linkUploadArguments, # Arguments for our function that uploads page links
+              maxDepth=maxDepth, # How far down into the website to crawl
               patternList=['.*'], # Crawls all URLS. Use site specific regex, e.g: ['.*\/en\/us\/.*', '.*\/en\/uk\/.*']
 )
 logger.log(f'Crawling website, {websiteNickname}')

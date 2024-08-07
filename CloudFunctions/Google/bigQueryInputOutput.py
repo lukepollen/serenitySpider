@@ -1,3 +1,4 @@
+import pandas_gbq
 from google.cloud import bigquery
 
 from metabeaver.GoogleCloudPlatform.BigQuery.TableManagement import create_schema, create_bigquery_table
@@ -75,6 +76,9 @@ def append_set_to_bigquery_table(uploadArgs, items_to_append):
     table_name = uploadArgs[3]
     table_id = f"{project_id}.{table_set}.{table_name}"
 
+    # Instantiate a client object for appending links to bigquery
+    client = bigquery.Client(project=project_id, credentials=credentials)
+
     logger = Logger()
     logger.log('Got upload variables.')
     logger.log('Length of items to append was: ')
@@ -107,10 +111,19 @@ def append_set_to_bigquery_table(uploadArgs, items_to_append):
 
     # Insert rows into the table
     try:
-        items_to_append.to_gbq(destination_table=f'{table_set}.{table_name}',
-                  project_id=project_id,
-                  if_exists='append',
-                  credentials=credentials)
+        #items_to_append.to_gbq(destination_table=f'{table_set}.{table_name}',
+        #          project_id=project_id,
+        #          if_exists='append',
+        #          credentials=credentials)
+        
+        pandas_gbq.to_gbq(
+            items_to_append,
+            f'{table_set}.{table_name}',
+            project_id=project_id,
+            if_exists='append',
+            credentials=credentials,
+        )
+
     except Exception as e:
         print('Could not upload link data!')
         print(str(e))
