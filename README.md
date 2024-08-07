@@ -1,3 +1,31 @@
+Serenity Spider, a headless Chromium based crawler, packaged into a Docker container with an orchestration layer, for crawling multiple websites according to your desired amount of crawling depth + total URL consideration
+
+  1.) git clone https://github.com/lukepollen/serenitySpider
+  
+  2.) Copy a valid GCP credentials.json object into the WebScraping directory.
+  
+  3.) Navigate to serenitySpider directory where you will see the requirements.txt and Dockerfile . The Dockerfile will configure a Linux environment with all the required Python libraries.
+  
+  4.) Start your Docker service on the host system.
+  
+  5.) docker build -t serenity_spider .
+  
+  6.) Edit the exampleDockerRun file to contain your relevant credentials and the website to crawl. See the exampleDockerRun.txt and replace with your details.
+
+  7.) (optional) Run the syndicateCrawlers.py with your GCP details and reference to a .xlsx file and watch your GCP tableset fill up with data for each domain.
+
+Commit Five will focus on automatically trying to discover a sitemap at either /sitemap.xml or /sitemap_index.xml .
+
+  
+COMMIT FOUR:
+
+Added substantial control updates to the crawler - they can now be syndicated in parallel with Docker and take max_depth and max_url parameters to consider.
+
+This allows for crawling of several websites at once, with the ability to specify how deep into the website, based on url structure (e.g. home page is level 0, home/subject-page is level 1, home/subject-page/topic-in-subject is level 2, etc) and also how much of the website we want to consider.
+
+The internals of the scraper have been updated to pass back a sys.exit(0) on a successful crawl, and a sys.exit(1) on a failed crawl, both of which can be received by the syndication layer via Docker's event bus, allowing for the proper spin up / shut down of crawlers.
+
+
 COMMIT THREE:
 
   Multiple quality of like updates.
